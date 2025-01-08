@@ -1,0 +1,28 @@
+[package]
+edition = "2021"
+name = "std-example"
+version = "0.0.1"
+
+[dependencies]
+embassy-sync = { version = "0.6.1", features = ["log"] }
+embassy-executor = { version = "0.7.0", features = ["task-arena-size-32768", "arch-std", "executor-thread", "log"] }
+embassy-time = { version = "0.4.0", features = ["log", "std", ] }
+embedded-io-async = { version = "0.6.1" }
+embedded-io-adapters = { version = "0.6.1", features = ["futures-03"] }
+critical-section = { version = "1.1", features = ["std"] }
+
+async-io = "1.6.0"
+env_logger = "0.9.0"
+futures = { version = "0.3.17" }
+log = "0.4.14"
+nix = "0.26.2"
+clap = { version = "3.0.0-beta.5", features = ["derive"] }
+rand_core = { version = "0.6.3", features = ["std"] }
+heapless = { version = "0.8", default-features = false }
+static_cell = "2"
+
+libcamera = { version = "0.3.0", features = [ "vendor_rpi" ] }
+ezk-image = "0.2.4"
+
+[patch.crates-io]
+libcamera = { git = 'https://github.com/fishrockz/libcamera-rs', branch = 'willsalmon/get-libcamera-version' }

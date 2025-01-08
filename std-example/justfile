@@ -1,0 +1,7 @@
+default:
+  #!/usr/bin/env bash
+	cargo build --release 
+
+run:
+  #!/usr/bin/env bash
+	cargo build --release 

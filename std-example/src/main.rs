@@ -1,7 +1,7 @@
 use embassy_executor::Spawner;
 use embassy_time::{Duration,Timer};
 use log::*;
-use libcamera::{camera_manager::CameraManager, logging::LoggingLevel, stream::StreamRole};
+use libcamera::{utils::Immutable,camera_manager::CameraManager, logging::LoggingLevel, stream::{StreamRole, StreamConfigurationRef}};
 
 use libcamera::{
     camera::CameraConfigurationStatus,
@@ -13,10 +13,12 @@ use libcamera::{
     properties,
 };
 
+use yuvutils_rs::{yuyv422_to_rgb,YuvPackedImage,YuvStandardMatrix,YuvRange};
+
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
 //const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
 const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
-const IMAGE_FILE_SUFFIX: &str = "raw";
+const IMAGE_FILE_SUFFIX: &str = "jpg";
 
 #[embassy_executor::task]
 async fn task_camera_capture(filename : String) {
@@ -63,7 +65,13 @@ async fn task_camera_capture(filename : String) {
     let mut alloc = FrameBufferAllocator::new(&cam);
 
     // Allocate frame buffers for the stream
-    let cfg = cfgs.get(0).unwrap();
+    let cfg: Immutable<StreamConfigurationRef> = cfgs.get(0).unwrap();
+
+    let image_size = cfg.value().get_size();
+    let height = image_size.height;
+    let width = image_size.width;
+    let stride = cfg.value().get_stride();
+
     let stream = cfg.stream().unwrap();
     let buffers = alloc.alloc(&stream).unwrap();
     info!("Allocated {} buffers", buffers.len());
@@ -93,6 +101,9 @@ async fn task_camera_capture(filename : String) {
 
     cam.start(None).unwrap();
 
+    // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
+    let target_channels : u32 = 3;
+    let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
     
     loop {
         // Multiple requests can be queued at a time, but for this example we just want a single frame.
@@ -112,43 +123,17 @@ async fn task_camera_capture(filename : String) {
         let img_data = planes.get(0).unwrap();
         // Actual data will be smalled than framebuffer size, its length can be obtained from metadata.
         let data_len = framebuffer.metadata().unwrap().planes().get(0).unwrap().bytes_used as usize; 
-        
-        // TODO: Convert from raw YUYV pixels data, into RGB pixels, then into JPEG.
-        //       The ezk-image crate looks decent for this.
-        /*
-        let (width, height) = (1920, 1080);
-        let rgb_image = vec![0u8; PixelFormat::RGB.buffer_size(width, height)];
-        let source = Image::from_buffer(
-            PixelFormat::RGB,
-            &rgb_image[..], // RGB only has one plane
-            None, // No need to define strides if there's no padding between rows
-            width,
-            height,
-            ColorInfo::RGB(RgbColorInfo {
-                transfer: ColorTransfer::Linear,
-                primaries: ColorPrimaries::BT709,
-            }),
-        ).unwrap();
-        let mut destination = Image::blank(
-            PixelFormat::NV12, // We're converting to NV12
-            width,
-            height,
-            ColorInfo::YUV(YuvColorInfo {
-                space: ColorSpace::BT709,
-                transfer: ColorTransfer::Linear,
-                primaries: ColorPrimaries::BT709,
-                full_range: false,
-            }),
-        );
-        convert_multi_thread(
-            &source,
-            &mut destination,
-        ).unwrap();
-        */
 
+        // Convert the raw YUYV422 packed pixel data into RGB8
+        let src_yuyv422 : YuvPackedImage<u8> = YuvPackedImage{ yuy: &img_data[..data_len], yuy_stride: stride, width, height };
+        src_yuyv422.check_constraints().expect("YUYV422 data formed correctly.");
+        yuyv422_to_rgb(&src_yuyv422, &mut img_rgb, width * target_channels, YuvRange::Limited, YuvStandardMatrix::Bt601).unwrap();
+        
+        // encode the RGB buffer into a regular image file, depending on IMAGE_FILE_SUFFIX.
         let fname = format!("{}_{}.{}",&filename,req.sequence(),IMAGE_FILE_SUFFIX);
-        std::fs::write(&fname, &img_data[..data_len]).unwrap();
-        info!("Written {} bytes to {}", data_len, &fname);
+        image::save_buffer(&fname, &img_rgb, width, height, image::ExtendedColorType::Rgb8).unwrap();
+
+        info!("Written {} bytes to {}", img_rgb.len(), &fname);
 
         // Push request back onto queue and go again after a second
         Timer::after_millis(1000).await;

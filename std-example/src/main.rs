@@ -1,7 +1,7 @@
 use embassy_executor::Spawner;
 use embassy_time::{Duration,Timer,Ticker};
 use log::*;
-use libcamera::{utils::Immutable,camera_manager::CameraManager, logging::LoggingLevel, stream::{StreamRole, StreamConfigurationRef}};
+use libcamera::{camera_manager::CameraManager, geometry::Size, logging::LoggingLevel, stream::{Stream, StreamConfigurationRef, StreamRole}, utils::Immutable};
 
 use libcamera::{
     camera::CameraConfigurationStatus,
@@ -64,7 +64,12 @@ async fn task_camera_capture(filename : String) {
     );
 
     // Set the pixel size
-    //cfgs.get_mut(0).unwrap().set_pixel_format(PIXEL_FORMAT);
+    {
+        let cfg_size : Size = Size { width: 1920, height: 1080 };
+        // let cfg_size : Size = Size { width: 1296, height: 972 };
+        let mut mut_cfg : StreamConfigurationRef = cfgs.get_mut(0).unwrap();
+        mut_cfg.set_size(cfg_size);
+    }
     
     // Apply the final config
     cam.configure(&mut cfgs).expect("Unable to configure camera");

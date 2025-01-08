@@ -1,5 +1,5 @@
 use embassy_executor::Spawner;
-use embassy_time::{Duration,Timer};
+use embassy_time::{Duration,Timer,Ticker};
 use log::*;
 use libcamera::{utils::Immutable,camera_manager::CameraManager, logging::LoggingLevel, stream::{StreamRole, StreamConfigurationRef}};
 
@@ -17,8 +17,12 @@ use yuvutils_rs::{yuyv422_to_rgb,YuvPackedImage,YuvStandardMatrix,YuvRange};
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
 //const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+// raspi camera only supports YUYV directly
 const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
-const IMAGE_FILE_SUFFIX: &str = "jpg";
+
+// Change the output format as desired
+const IMAGE_FILE_SUFFIX: &str = "png";
+//const IMAGE_FILE_SUFFIX: &str = "jpg";
 
 #[embassy_executor::task]
 async fn task_camera_capture(filename : String) {
@@ -26,7 +30,6 @@ async fn task_camera_capture(filename : String) {
     mgr.log_set_level("Camera", LoggingLevel::Error);
 
     let cameras = mgr.cameras();
-
     let cam = cameras.get(0).expect("No cameras found");
 
     info!(
@@ -60,6 +63,10 @@ async fn task_camera_capture(filename : String) {
         "Selected pixel format is not supported by the camera"
     );
 
+    // Set the pixel size
+    //cfgs.get_mut(0).unwrap().set_pixel_format(PIXEL_FORMAT);
+    
+    // Apply the final config
     cam.configure(&mut cfgs).expect("Unable to configure camera");
 
     let mut alloc = FrameBufferAllocator::new(&cam);
@@ -104,13 +111,14 @@ async fn task_camera_capture(filename : String) {
     // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
     let target_channels : u32 = 3;
     let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
+
+    let mut tick = Ticker::every(Duration::from_millis(1000));
     
     loop {
         // Multiple requests can be queued at a time, but for this example we just want a single frame.
         cam.queue_request(reqs.pop().unwrap()).unwrap();
-
         info!("Waiting for camera request execution");
-        let mut req = rx.recv_timeout(Duration::from_secs(1).into()).expect("Camera request failed");
+        let mut req = rx.recv_timeout(Duration::from_millis(1000).into()).expect("Camera request failed");
         info!("Camera request {:?} completed!", req);
         info!("Metadata: {:#?}", req.metadata());
         // Get framebuffer for our stream
@@ -135,12 +143,11 @@ async fn task_camera_capture(filename : String) {
 
         info!("Written {} bytes to {}", img_rgb.len(), &fname);
 
-        // Push request back onto queue and go again after a second
-        Timer::after_millis(1000).await;
-
         req.reuse(ReuseFlag::REUSE_BUFFERS);
         reqs.push(req);
 
+        // Push request back onto queue and go again after a second
+        tick.next().await;
     }
 }
 

@@ -48,8 +48,6 @@ async fn task_camera_capture(filename : String) {
     // Use MJPEG format so we can write resulting frame directly into jpeg file
     cfgs.get_mut(0).unwrap().set_pixel_format(PIXEL_FORMAT);
 
-    info!("Generated config: {:#?}", cfgs);
-
     match cfgs.validate() {
         CameraConfigurationStatus::Valid => info!("Camera configuration valid!"),
         CameraConfigurationStatus::Adjusted => info!("Camera configuration was adjusted: {:#?}", cfgs),
@@ -63,14 +61,17 @@ async fn task_camera_capture(filename : String) {
         "Selected pixel format is not supported by the camera"
     );
 
-    // Set the pixel size
+    /* Set the pixel size
     {
-        let cfg_size : Size = Size { width: 1920, height: 1080 };
-        // let cfg_size : Size = Size { width: 1296, height: 972 };
+        //let cfg_size : Size = Size { width: 1920, height: 1080 };
+        let cfg_size : Size = Size { width: 1296, height: 972 };
         let mut mut_cfg : StreamConfigurationRef = cfgs.get_mut(0).unwrap();
         mut_cfg.set_size(cfg_size);
     }
+    */
     
+    info!("Generated config: {:#?}", cfgs);
+
     // Apply the final config
     cam.configure(&mut cfgs).expect("Unable to configure camera");
 

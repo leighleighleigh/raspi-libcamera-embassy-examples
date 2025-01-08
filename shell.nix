@@ -25,6 +25,7 @@ in
       glib
       zlib
       libusb1
+      just
       
       # cross-rs needs this binary
       #rustup

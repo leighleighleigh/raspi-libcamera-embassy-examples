@@ -1,7 +1,7 @@
 default:
   #!/usr/bin/env bash
-	cargo build --release 
+  cargo build --release 
 
 run:
   #!/usr/bin/env bash
-	cargo build --release 
+  cargo run --release -- {{justfile_directory()}}/images/rpi

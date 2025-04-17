@@ -21,7 +21,7 @@ rand_core = { version = "0.6.3", features = ["std"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2"
 
-libcamera = { version = "0.5.0", features = [ "vendor_rpi" ] }
+libcamera = { version = "0.5.0", features = [ "vendor_rpi" ], default-features = false }
 # libcamera = { version = "0.3.0" }
 
 yuvutils-rs = "0.5.14"
@@ -29,5 +29,6 @@ image = "0.25.5"
 
 [patch.crates-io]
 #libcamera = { git = 'https://github.com/fishrockz/libcamera-rs', branch = 'willsalmon/get-libcamera-version' }
-libcamera = { git = 'https://github.com/leighleighleigh/libcamera-rs', rev = '871eb1a35d224ad4f5bee1cbd284a66e3cbd4a3a' }
+#libcamera = { git = 'https://github.com/leighleighleigh/libcamera-rs', rev = '871eb1a35d224ad4f5bee1cbd284a66e3cbd4a3a' }
+libcamera = { git = 'https://github.com/leighleighleigh/libcamera-rs', rev = 'beb26ad111a5374343737fe09b1167ae8d9b583f' }
 

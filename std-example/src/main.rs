@@ -32,10 +32,10 @@ async fn task_camera_capture(filename : String) {
     let cameras = mgr.cameras();
     let cam = cameras.get(0).expect("No cameras found");
 
-    info!(
-        "Using camera: {}",
-        *cam.properties().get::<properties::Model>().unwrap()
-    );
+    //info!(
+    //    "Using camera: {}",
+    //    *cam.properties().get::<properties::Model>().unwrap()
+    //);
 
     let mut cam = cam.acquire().expect("Unable to acquire camera");
 

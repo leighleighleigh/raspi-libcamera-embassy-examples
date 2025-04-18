@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "std-example"
+name = "rerun-example"
 version = "0.0.1"
 
 [dependencies]
@@ -27,6 +27,7 @@ libcamera = { version = "0.5.0", default-features = false }
 
 yuvutils-rs = "0.5.14"
 image = "0.25.5"
+rerun = "0.22.1"
 
 [patch.crates-io]
 #libcamera = { git = 'https://github.com/fishrockz/libcamera-rs', branch = 'willsalmon/get-libcamera-version' }

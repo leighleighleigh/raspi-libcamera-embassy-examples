@@ -20,12 +20,14 @@ in
       #gcc 
       #rust-analyzer
       #stdenv.cc 
-      #systemd
+      systemdMinimal
       pkg-config
+      openssl
       glib
       zlib
       libusb1
       just
+      jujutsu
       
       # cross-rs needs this binary
       #rustup

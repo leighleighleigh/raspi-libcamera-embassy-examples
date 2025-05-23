@@ -21,8 +21,8 @@ use yuvutils_rs::{yuyv422_to_rgb,YuvPackedImage,YuvStandardMatrix,YuvRange};
 const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
 
 // Change the output format as desired
-const IMAGE_FILE_SUFFIX: &str = "png";
-//const IMAGE_FILE_SUFFIX: &str = "jpg";
+//const IMAGE_FILE_SUFFIX: &str = "png";
+const IMAGE_FILE_SUFFIX: &str = "jpg";
 
 #[embassy_executor::task]
 async fn task_camera_capture(filename : String) {
@@ -41,8 +41,8 @@ async fn task_camera_capture(filename : String) {
 
     // This will generate default configuration for each specified role
     //let mut cfgs = cam.generate_configuration(&[StreamRole::Raw]).unwrap();
-    let mut cfgs = cam.generate_configuration(&[StreamRole::StillCapture]).unwrap();
-    //let mut cfgs = cam.generate_configuration(&[StreamRole::VideoRecording]).unwrap();
+    //let mut cfgs = cam.generate_configuration(&[StreamRole::StillCapture]).unwrap();
+    let mut cfgs = cam.generate_configuration(&[StreamRole::VideoRecording]).unwrap();
     //let mut cfgs = cam.generate_configuration(&[StreamRole::ViewFinder]).unwrap();
 
     // Use MJPEG format so we can write resulting frame directly into jpeg file
@@ -64,11 +64,11 @@ async fn task_camera_capture(filename : String) {
     /* Set the pixel size
     {
         //let cfg_size : Size = Size { width: 1920, height: 1080 };
-        let cfg_size : Size = Size { width: 1296, height: 972 };
-        let mut mut_cfg : StreamConfigurationRef = cfgs.get_mut(0).unwrap();
-        mut_cfg.set_size(cfg_size);
     }
     */
+    let cfg_size : Size = Size { width: 1920, height: 1080 };
+    let mut mut_cfg : StreamConfigurationRef = cfgs.get_mut(0).unwrap();
+    mut_cfg.set_size(cfg_size);
     
     info!("Generated config: {:#?}", cfgs);
 
@@ -118,18 +118,19 @@ async fn task_camera_capture(filename : String) {
     let target_channels : u32 = 3;
     let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
 
-    let mut tick = Ticker::every(Duration::from_millis(1000));
+    let mut tick = Ticker::every(Duration::from_millis(100));
     
     loop {
+        Timer::after_millis(10).await;
         // Multiple requests can be queued at a time, but for this example we just want a single frame.
         cam.queue_request(reqs.pop().unwrap()).unwrap();
         info!("Waiting for camera request execution");
-        let mut req = rx.recv_timeout(Duration::from_millis(1000).into()).expect("Camera request failed");
-        info!("Camera request {:?} completed!", req);
-        info!("Metadata: {:#?}", req.metadata());
+        let mut req = rx.recv_timeout(Duration::from_millis(5000).into()).expect("Camera request failed");
+        //info!("Camera request {:?} completed!", req);
+        //info!("Metadata: {:#?}", req.metadata());
         // Get framebuffer for our stream
         let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = req.buffer(&stream).unwrap();
-        info!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
+        //info!("FrameBuffer metadata: {:#?}", framebuffer.metadata());
 
         // NOTE: MJPEG format has only one data plane containing encoded jpeg data with all the headers
         let planes = framebuffer.data();

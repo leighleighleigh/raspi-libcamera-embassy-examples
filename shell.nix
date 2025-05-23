@@ -35,6 +35,11 @@ in
       # for libcamera-rs
       libcamera
       libclang
+
+      # for candle ML
+      protobuf
+      protobufc
+      protoc-gen-rust
     ]);
 
     LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";

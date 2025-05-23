@@ -1,0 +1,85 @@
+[package]
+name = "yolov8-example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+#candle = { workspace = true }
+candle-core = "0.8.4"
+#candle-nn = { workspace = true }
+#num-traits = { workspace = true }
+#serde = { workspace = true }
+#serde_json = { workspace = true }
+#image = { workspace = true }
+#anyhow = { workspace = true }
+#byteorder = { workspace = true }
+#log = { workspace = true }
+#rand = { workspace = true }
+#safetensors = { workspace = true }
+
+# Wasm specific crates.
+console_error_panic_hook = "0.1.7"
+getrandom = { version = "0.3.2", features = ["wasm_js"] }
+gloo = "0.11"
+js-sys = "0.3.64"
+wasm-bindgen = "0.2.87"
+wasm-bindgen-futures = "0.4.37"
+wasm-logger = "0.2"
+yew-agent = "0.2.0"
+yew = { version = "0.20.0", features = ["csr"] }
+base64 = "0.22.1"
+candle-nn = "0.8.4"
+num-traits = "0.2.19"
+serde = "1.0.219"
+serde_json = "1.0.140"
+image = "0.25.6"
+anyhow = "1.0.98"
+byteorder = "1.5.0"
+log = "0.4.27"
+rand = "0.9.1"
+safetensors = "0.5.3"
+facet = "0.9.0"
+facet-pretty = "0.9.0"
+facet-args = "0.9.0"
+candle-transformers = "0.8.4"
+hf-hub = "0.4.2"
+candle-onnx = "0.8.4"
+imageproc = "0.25.0"
+ab_glyph = "0.2.29"
+tracing = "0.1.41"
+
+#rscam = "0.5.5" # deprecated
+tempfile = "3.20.0"
+
+libcamera = { version = "0.5.0", features = [ "vendor_rpi" ], default-features = false }
+#libcamera = { version = "0.5.0", features = [], default-features = false }
+yuvutils-rs = "0.5.14"
+rerun = { version = "0.23.2", default-features = false, features = ["sdk", "log", "image", "server"] }
+
+[dependencies.web-sys]
+version = ">=0.3.70"
+features = [
+    'Blob',
+    'CanvasRenderingContext2d',
+    'Document',
+    'Element',
+    'HtmlElement',
+    'HtmlCanvasElement',
+    'HtmlImageElement',
+    'ImageData',
+    'Node',
+    'Window',
+    'Request',
+    'RequestCache',
+    'RequestInit',
+    'RequestMode',
+    'Response',
+    'Performance',
+    'TextMetrics',
+    'DataTransfer',
+]
+
+[patch.crates-io]
+libcamera = { git = 'https://github.com/leighleighleigh/libcamera-rs', rev = 'beb26ad111a5374343737fe09b1167ae8d9b583f' }
+
+

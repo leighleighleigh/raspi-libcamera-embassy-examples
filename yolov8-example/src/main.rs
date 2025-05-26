@@ -5,8 +5,8 @@ use std::{env, io::Seek};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::{Duration, Ticker, Timer};
-use log::*;
 
 mod model;
 use model::{Multiples, YoloV8};
@@ -27,7 +27,6 @@ use libcamera::{
     utils::Immutable,
 };
 use std::iter::Iterator;
-use tempfile::{NamedTempFile, tempfile};
 
 use libcamera::{
     camera::CameraConfigurationStatus,
@@ -43,12 +42,14 @@ use log::{Level, error, info};
 use rerun::{MemoryLimit, RecordingStream};
 use yuvutils_rs::{YuvPackedImage, YuvRange, YuvStandardMatrix, yuyv422_to_rgb};
 
-pub static IMAGES_CHANNEL: Channel<CriticalSectionRawMutex, image::RgbImage, 1> = Channel::new();
+pub static IMAGES_CHANNEL: PubSubChannel<CriticalSectionRawMutex, image::RgbImage, 2, 3, 1> =
+    PubSubChannel::new();
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
-//const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+pub const PIXEL_FORMAT: PixelFormat =
+    PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
 // raspi camera only supports YUYV directly
-pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
+// pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
 
 // Change the output format as desired
 //const IMAGE_FILE_SUFFIX: &str = "png";
@@ -113,15 +114,15 @@ pub fn report_detect(
     Ok(dets)
 }
 
-pub fn load_model() -> anyhow::Result<std::path::PathBuf> {
-    let path = {
-        let api = hf_hub::api::sync::Api::new()?;
-        let api = api.model("lmz/candle-yolo-v8".to_string());
-        let size = 'n';
-        api.get(&format!("yolov8{size}.safetensors"))?
-    };
-    Ok(path)
-}
+// pub fn load_model() -> anyhow::Result<std::path::PathBuf> {
+//     let path = {
+//         let api = hf_hub::api::sync::Api::new()?;
+//         let api = api.model("lmz/candle-yolo-v8".to_string());
+//         let size = 'n';
+//         api.get(&format!("yolov8{size}.safetensors"))?
+//     };
+//     Ok(path)
+// }
 
 pub trait Task: Module + Sized {
     fn load(vb: VarBuilder, multiples: Multiples) -> Result<Self>;
@@ -154,9 +155,9 @@ async fn task_camera(rec: RecordingStream) {
     let cameras = mgr.cameras();
     let cam = cameras.get(0).expect("No cameras found");
     let mut cam = cam.acquire().expect("Unable to acquire camera");
-        //.generate_configuration(&[StreamRole::VideoRecording])
+    //.generate_configuration(&[StreamRole::VideoRecording])
     let mut cfgs = cam
-        .generate_configuration(&[StreamRole::StillCapture])
+        .generate_configuration(&[StreamRole::VideoRecording])
         .unwrap();
     cfgs.get_mut(0).unwrap().set_pixel_format(PIXEL_FORMAT);
 
@@ -176,11 +177,12 @@ async fn task_camera(rec: RecordingStream) {
     );
 
     let cfg_size: Size = Size {
-        width: 1280,
-        height: 720,
+        width: 640,
+        height: 480,
     };
     let mut mut_cfg: StreamConfigurationRef = cfgs.get_mut(0).unwrap();
     mut_cfg.set_size(cfg_size);
+    mut_cfg.set_buffer_count(2);
 
     cam.configure(&mut cfgs)
         .expect("Unable to configure camera");
@@ -223,19 +225,24 @@ async fn task_camera(rec: RecordingStream) {
 
     cam.start(None).unwrap();
 
+    // Enqueue all requests to the camera
+    for req in reqs {
+        println!("Request queued for execution: {req:#?}");
+        cam.queue_request(req).unwrap();
+    }
+
     // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
     let target_channels: u32 = 3;
     let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
-
-    let tx = IMAGES_CHANNEL.sender();
+    let tx = IMAGES_CHANNEL.publisher().unwrap();
 
     loop {
         // Multiple requests can be queued at a time, but for this example we just want a single frame.
-        cam.queue_request(reqs.pop().unwrap()).unwrap();
-        let mut req = rx
+        // cam.queue_request(reqs.pop().unwrap()).unwrap();
+        let mut rreq = rx
             .recv_timeout(std::time::Duration::from_millis(5000).into())
             .expect("Camera request failed");
-        let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = req.buffer(&stream).unwrap();
+        let framebuffer: &MemoryMappedFrameBuffer<FrameBuffer> = rreq.buffer(&stream).unwrap();
 
         // NOTE: MJPEG format has only one data plane containing encoded jpeg data with all the headers
         let planes = framebuffer.data();
@@ -249,6 +256,8 @@ async fn task_camera(rec: RecordingStream) {
             .unwrap()
             .bytes_used as usize;
 
+        // ONLY FOR PIXEL FORMAT YUV
+        /*
         // Convert the raw YUYV422 packed pixel data into RGB8
         let src_yuyv422: YuvPackedImage<u8> = YuvPackedImage {
             yuy: &img_data[..data_len],
@@ -256,11 +265,9 @@ async fn task_camera(rec: RecordingStream) {
             width,
             height,
         };
-
         src_yuyv422
             .check_constraints()
             .expect("YUYV422 data formed correctly.");
-
         yuyv422_to_rgb(
             &src_yuyv422,
             &mut img_rgb,
@@ -269,40 +276,37 @@ async fn task_camera(rec: RecordingStream) {
             YuvStandardMatrix::Bt601,
         )
         .unwrap();
+        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
+        */
+
+        // ONLY FOR PIXEL FORMAT MJPEG
+        let imgbuf = std::io::Cursor::new(&img_data[..data_len]);
+        let buffered_image = image::ImageReader::new(imgbuf)
+            .with_guessed_format()
+            .unwrap()
+            .decode()
+            .expect("Decoded image")
+            .to_rgb8();
+
+        tx.publish_immediate(buffered_image);
 
         // Push request back onto queue and go again after a second
-        req.reuse(ReuseFlag::REUSE_BUFFERS);
-        reqs.push(req);
+        rreq.reuse(ReuseFlag::REUSE_BUFFERS);
+        // reqs.push(req);
+        cam.queue_request(rreq).unwrap();
 
-        // Create a DynamicImage from the img_rgb buffer.
-        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
-        match tx.try_send(buffered_image) {
-            Ok(_) => (),
-            Err(_) => (),
-        };
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(10)).await;
     }
 }
 
 #[embassy_executor::task]
 async fn task_log_images(rec: RecordingStream) {
     let mut framenum = 0;
-    let rx = IMAGES_CHANNEL.receiver();
-
-    let device = Device::Cpu;
-    // Create the model and load the weights from the file.
-    let multiples = Multiples::n();
-    // let model = load_model()?;
-    let model: std::path::PathBuf = "best.safetensors".into();
-    let vb = unsafe {
-        VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device).expect("Mapped memory")
-    };
-    let model = <YoloV8 as Task>::load(vb, multiples).expect("Loaded model");
+    let mut rx = IMAGES_CHANNEL.subscriber().unwrap();
 
     loop {
-        Timer::after(Duration::from_millis(100)).await;
         // wait for an image to be available
-        let img_rgb: image::RgbImage = rx.receive().await;
+        let img_rgb: image::RgbImage = rx.next_message_pure().await;
         let (width, height) = (img_rgb.width(), img_rgb.height());
 
         rec.set_time_sequence("frame", framenum);
@@ -313,6 +317,29 @@ async fn task_log_images(rec: RecordingStream) {
         .unwrap();
         framenum += 1;
         info!("Logged image frame {}", framenum);
+    }
+}
+
+#[embassy_executor::task]
+async fn task_run_yolo(rec: RecordingStream) {
+    let mut framenum = 0;
+    let mut rx = IMAGES_CHANNEL.subscriber().unwrap();
+
+    let device = Device::Cpu;
+    // Create the model and load the weights from the file.
+    let multiples = Multiples::n();
+    let model: std::path::PathBuf = "best.safetensors".into();
+    let vb = unsafe {
+        VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device).expect("Mapped memory")
+    };
+    let model = <YoloV8 as Task>::load(vb, multiples).expect("Loaded model");
+
+    loop {
+        // run every half second
+        Timer::after(Duration::from_millis(500)).await;
+
+        // wait for an image to be available
+        let img_rgb: image::RgbImage = rx.next_message_pure().await;
 
         // Create a DynamicImage from the img_rgb buffer.
         let original_image = DynamicImage::ImageRgb8(img_rgb);
@@ -334,7 +361,7 @@ async fn task_log_images(rec: RecordingStream) {
             let img = original_image.resize_exact(
                 width as u32,
                 height as u32,
-                image::imageops::FilterType::CatmullRom,
+                image::imageops::FilterType::Nearest,
             );
             let data = img.to_rgb8().into_raw();
             Tensor::from_vec(
@@ -381,6 +408,10 @@ async fn task_log_images(rec: RecordingStream) {
             })
             .collect();
 
+        framenum += 1;
+        info!("Inferenced frame {}", framenum);
+
+        rec.set_time_sequence("frame", framenum);
         // log to rerun
         rec.log(
             "image_rgb/detections",
@@ -416,4 +447,5 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(task_camera(rec.clone())).unwrap();
     spawner.spawn(task_log_images(rec.clone())).unwrap();
+    spawner.spawn(task_run_yolo(rec.clone())).unwrap();
 }

@@ -4,18 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-#candle = { workspace = true }
+embassy-sync = { version = "0.6.1", features = ["log"] }
+embassy-executor = { version = "0.7.0", features = ["task-arena-size-32768", "arch-std", "executor-thread", "log"] }
+embassy-time = { version = "0.4.0", features = ["log", "std", ] }
+embedded-io-async = { version = "0.6.1" }
+embedded-io-adapters = { version = "0.6.1", features = ["futures-03"] }
+critical-section = { version = "1.1", features = ["std"] }
+
 candle-core = "0.8.4"
-#candle-nn = { workspace = true }
-#num-traits = { workspace = true }
-#serde = { workspace = true }
-#serde_json = { workspace = true }
-#image = { workspace = true }
-#anyhow = { workspace = true }
-#byteorder = { workspace = true }
-#log = { workspace = true }
-#rand = { workspace = true }
-#safetensors = { workspace = true }
 
 # Wasm specific crates.
 console_error_panic_hook = "0.1.7"
@@ -55,6 +51,7 @@ tempfile = "3.20.0"
 libcamera = { version = "0.5.0", features = [], default-features = false }
 yuvutils-rs = "0.5.14"
 rerun = { version = "0.23.2", default-features = false, features = ["sdk", "log", "image", "server"] }
+env_logger = "0.11.8"
 
 [dependencies.web-sys]
 version = ">=0.3.70"

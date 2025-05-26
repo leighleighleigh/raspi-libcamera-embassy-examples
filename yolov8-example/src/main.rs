@@ -2,6 +2,12 @@ use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::{env, io::Seek};
 
+use embassy_executor::Spawner;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_time::{Duration, Ticker, Timer};
+use log::*;
+
 mod model;
 use model::{Multiples, YoloV8};
 
@@ -36,6 +42,8 @@ use libcamera::{
 use log::{Level, error, info};
 use rerun::{MemoryLimit, RecordingStream};
 use yuvutils_rs::{YuvPackedImage, YuvRange, YuvStandardMatrix, yuyv422_to_rgb};
+
+pub static IMAGES_CHANNEL: Channel<CriticalSectionRawMutex, image::RgbImage, 1> = Channel::new();
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
 //const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
@@ -140,18 +148,8 @@ impl Task for YoloV8 {
 
 // TODO: pass something which is just an interable image stream,
 // sourced from anywhere (files on disk, webcam, libcamera, GPU, etc)
-pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
-    let device = Device::Cpu;
-
-    // Create the model and load the weights from the file.
-    let multiples = Multiples::n();
-
-    // let model = load_model()?;
-    let model: std::path::PathBuf = "best.safetensors".into();
-
-    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device)? };
-    let model = T::load(vb, multiples)?;
-
+#[embassy_executor::task]
+async fn task_camera(rec: RecordingStream) {
     let mgr = CameraManager::new().unwrap();
     mgr.log_set_level("Camera", LoggingLevel::Error);
     let cameras = mgr.cameras();
@@ -228,7 +226,8 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
     // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
     let target_channels: u32 = 3;
     let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
-    let mut framenum = 0;
+
+    let tx = IMAGES_CHANNEL.sender();
 
     loop {
         // Multiple requests can be queued at a time, but for this example we just want a single frame.
@@ -257,9 +256,11 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
             width,
             height,
         };
+
         src_yuyv422
             .check_constraints()
             .expect("YUYV422 data formed correctly.");
+
         yuyv422_to_rgb(
             &src_yuyv422,
             &mut img_rgb,
@@ -273,21 +274,44 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
         req.reuse(ReuseFlag::REUSE_BUFFERS);
         reqs.push(req);
 
-        // // this works to read files, but is inefficient.
-        // let mut file = tempfile().expect("Created temporary image file.");
-        // image::write_buffer_with_format(file, &img_rgb, width, height, image::ExtendedColorType::Rgb8, image::ImageFormat::Jpeg).expect("Wrote JPEG to buffer.");
+        // Create a DynamicImage from the img_rgb buffer.
+        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
+        tx.send(buffered_image).await;
+        Timer::after(Duration::from_millis(10)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn task_log_images(rec: RecordingStream) {
+    let mut framenum = 0;
+    let rx = IMAGES_CHANNEL.receiver();
+
+    let device = Device::Cpu;
+    // Create the model and load the weights from the file.
+    let multiples = Multiples::n();
+    // let model = load_model()?;
+    let model: std::path::PathBuf = "best.safetensors".into();
+    let vb = unsafe {
+        VarBuilder::from_mmaped_safetensors(&[model], DType::F32, &device).expect("Mapped memory")
+    };
+    let model = <YoloV8 as Task>::load(vb, multiples).expect("Loaded model");
+
+    loop {
+        // wait for an image to be available
+        let img_rgb: image::RgbImage = rx.receive().await;
+        let (width, height) = (img_rgb.width(), img_rgb.height());
+
         rec.set_time_sequence("frame", framenum);
         rec.log(
             "image_rgb",
-            &rerun::Image::from_rgb24(img_rgb.clone(), [width, height]),
+            &rerun::Image::from_rgb24(img_rgb.clone().into_vec(), [width, height]),
         )
         .unwrap();
         framenum += 1;
+        info!("Logged image frame {}", framenum);
 
         // Create a DynamicImage from the img_rgb buffer.
-        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone())
-            .expect("Built image from buffer");
-        let original_image = DynamicImage::ImageRgb8(buffered_image);
+        let original_image = DynamicImage::ImageRgb8(img_rgb);
 
         let (width, height) = {
             let w = original_image.width() as usize;
@@ -313,24 +337,28 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
                 data,
                 (img.height() as usize, img.width() as usize, 3),
                 &device,
-            )?
-            .permute((2, 0, 1))?
+            )
+            .unwrap()
+            .permute((2, 0, 1))
+            .unwrap()
         };
 
-        let image_t = (image_t.unsqueeze(0)?.to_dtype(DType::F32)? * (1. / 255.))?;
-        let predictions = model.forward(&image_t)?.squeeze(0)?;
-        let bboxes = T::report(
+        let image_t =
+            (image_t.unsqueeze(0).unwrap().to_dtype(DType::F32).unwrap() * (1. / 255.)).unwrap();
+        let predictions = model.forward(&image_t).unwrap().squeeze(0).unwrap();
+        let bboxes = <YoloV8 as Task>::report(
             &predictions,
             0.5,  // args.confidence_threshold,
             0.45, // args.nms_threshold,
-        )?;
+        )
+        .unwrap();
 
         // scale xs and ys by the image size, compared to the original image size
         let xscale = original_image.width() as f32 / width as f32;
         let yscale = original_image.height() as f32 / height as f32;
 
         // collect the mins and sizes into a list, which will be logged simultaneously
-        let mut boxes_mins_size_labels: Vec<(f32, f32, f32, f32, String)> = bboxes
+        let boxes_mins_size_labels: Vec<(f32, f32, f32, f32, String)> = bboxes
             .iter()
             .map(|b| {
                 let class_name = match b.data {
@@ -366,14 +394,22 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
                     .map(|(_, _, _, _, label)| rerun::datatypes::Utf8::from(label.as_str()))
                     .collect::<Vec<_>>(),
             ),
-        )?;
+        )
+        .unwrap();
     }
 }
 
-pub fn main() -> anyhow::Result<()> {
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Debug)
+        .format_timestamp_nanos()
+        .init();
+
     let rec = rerun::RecordingStreamBuilder::new("rerun_example_minimal")
         .serve_grpc_opts("0.0.0.0", 9876, MemoryLimit::from_fraction_of_total(0.25))
         .unwrap();
-    run::<YoloV8>(rec.clone())?;
-    Ok(())
+
+    spawner.spawn(task_camera(rec.clone())).unwrap();
+    spawner.spawn(task_log_images(rec.clone())).unwrap();
 }

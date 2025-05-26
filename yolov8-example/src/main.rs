@@ -48,8 +48,7 @@ pub static IMAGES_CHANNEL: Channel<CriticalSectionRawMutex, image::RgbImage, 1> 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
 //const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
 // raspi camera only supports YUYV directly
-pub const PIXEL_FORMAT: PixelFormat =
-    PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
+pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
 
 // Change the output format as desired
 //const IMAGE_FILE_SUFFIX: &str = "png";
@@ -155,8 +154,9 @@ async fn task_camera(rec: RecordingStream) {
     let cameras = mgr.cameras();
     let cam = cameras.get(0).expect("No cameras found");
     let mut cam = cam.acquire().expect("Unable to acquire camera");
+        //.generate_configuration(&[StreamRole::VideoRecording])
     let mut cfgs = cam
-        .generate_configuration(&[StreamRole::VideoRecording])
+        .generate_configuration(&[StreamRole::StillCapture])
         .unwrap();
     cfgs.get_mut(0).unwrap().set_pixel_format(PIXEL_FORMAT);
 
@@ -276,8 +276,11 @@ async fn task_camera(rec: RecordingStream) {
 
         // Create a DynamicImage from the img_rgb buffer.
         let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
-        tx.send(buffered_image).await;
-        Timer::after(Duration::from_millis(10)).await;
+        match tx.try_send(buffered_image) {
+            Ok(_) => (),
+            Err(_) => (),
+        };
+        Timer::after(Duration::from_millis(100)).await;
     }
 }
 
@@ -297,6 +300,7 @@ async fn task_log_images(rec: RecordingStream) {
     let model = <YoloV8 as Task>::load(vb, multiples).expect("Loaded model");
 
     loop {
+        Timer::after(Duration::from_millis(100)).await;
         // wait for an image to be available
         let img_rgb: image::RgbImage = rx.receive().await;
         let (width, height) = (img_rgb.width(), img_rgb.height());

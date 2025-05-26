@@ -47,8 +47,8 @@ tracing = "0.1.41"
 #rscam = "0.5.5" # deprecated
 tempfile = "3.20.0"
 
-#libcamera = { version = "0.5.0", features = [ "vendor_rpi" ], default-features = false }
-libcamera = { version = "0.5.0", features = [], default-features = false }
+libcamera = { version = "0.5.0", features = [ "vendor_rpi" ], default-features = false }
+#libcamera = { version = "0.5.0", features = [], default-features = false }
 yuvutils-rs = "0.5.14"
 rerun = { version = "0.23.2", default-features = false, features = ["sdk", "log", "image", "server"] }
 env_logger = "0.11.8"

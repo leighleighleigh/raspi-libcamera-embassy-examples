@@ -35,11 +35,17 @@ in
       # for libcamera-rs
       libcamera
       libclang
+      #libllvm
 
       # for candle ML
       protobuf
       protobufc
       protoc-gen-rust
+
+      # send a remote MJPG stream to a local video device
+      ffmpeg-full
+      v4l-utils
+      opencv
     ]);
 
     LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";

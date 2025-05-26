@@ -1,0 +1,7 @@
+#[build]
+# Required to make getrandom() happy
+#rustflags = [ '--cfg', 'getrandom_backend="wasm_js"' ]
+
+
+
+

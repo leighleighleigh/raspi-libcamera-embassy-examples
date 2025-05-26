@@ -34,8 +34,8 @@ use libcamera::{
 };
 
 use log::{Level, error, info};
+use rerun::{MemoryLimit, RecordingStream};
 use yuvutils_rs::{YuvPackedImage, YuvRange, YuvStandardMatrix, yuyv422_to_rgb};
-use rerun::{RecordingStream,MemoryLimit};
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
 //const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
@@ -276,7 +276,7 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
         // // this works to read files, but is inefficient.
         // let mut file = tempfile().expect("Created temporary image file.");
         // image::write_buffer_with_format(file, &img_rgb, width, height, image::ExtendedColorType::Rgb8, image::ImageFormat::Jpeg).expect("Wrote JPEG to buffer.");
-        rec.set_time_sequence("frame",framenum);
+        rec.set_time_sequence("frame", framenum);
         rec.log(
             "image_rgb",
             &rerun::Image::from_rgb24(img_rgb.clone(), [width, height]),
@@ -285,7 +285,8 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
         framenum += 1;
 
         // Create a DynamicImage from the img_rgb buffer.
-        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
+        let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone())
+            .expect("Built image from buffer");
         let original_image = DynamicImage::ImageRgb8(buffered_image);
 
         let (width, height) = {
@@ -320,7 +321,7 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
         let predictions = model.forward(&image_t)?.squeeze(0)?;
         let bboxes = T::report(
             &predictions,
-            0.5, // args.confidence_threshold,
+            0.5,  // args.confidence_threshold,
             0.45, // args.nms_threshold,
         )?;
 
@@ -328,31 +329,51 @@ pub fn run<T: Task>(rec: RecordingStream) -> anyhow::Result<()> {
         let xscale = original_image.width() as f32 / width as f32;
         let yscale = original_image.height() as f32 / height as f32;
 
-        for b in bboxes {
-            let class_name = match b.data {
-                0 => &format!("Empty Box ({:.1})",b.confidence),
-                1 => &format!("Ball ({:.1})",b.confidence),
-                _ => &format!("{:?}", b.data),
-            };
-            println!("{:?} - {}", b, class_name);
+        // collect the mins and sizes into a list, which will be logged simultaneously
+        let mut boxes_mins_size_labels: Vec<(f32, f32, f32, f32, String)> = bboxes
+            .iter()
+            .map(|b| {
+                let class_name = match b.data {
+                    0 => format!("Empty Box ({:.1})", b.confidence),
+                    1 => format!("Ball ({:.1})", b.confidence),
+                    _ => format!("{:?}", b.data),
+                };
+                // print!
+                println!("{:?} - {}", b, class_name);
+                // convert xmin,xmax,ymin,ymax to x,y,w,h
+                let x = b.xmin * xscale;
+                let y = b.ymin * yscale;
+                let w = (b.xmax - b.xmin) * xscale;
+                let h = (b.ymax - b.ymin) * yscale;
+                (x, y, w, h, class_name)
+            })
+            .collect();
 
-            // convert xmin,xmax,ymin,ymax to x,y,w,h
-            let x = b.xmin * xscale;
-            let y = b.ymin * yscale;
-            let w = (b.xmax - b.xmin) * xscale;
-            let h = (b.ymax - b.ymin) * yscale;
-
-            // log to rerun
-            rec.log(
-                "image_rgb/detections",
-                &rerun::Boxes2D::from_mins_and_sizes([(x,y)], [(w,h)]).with_labels([rerun::datatypes::Utf8::from(class_name.as_str())])
-            )?;
-        }
+        // log to rerun
+        rec.log(
+            "image_rgb/detections",
+            &rerun::Boxes2D::from_mins_and_sizes(
+                boxes_mins_size_labels
+                    .iter()
+                    .map(|(x, y, _, _, _)| (*x, *y)),
+                boxes_mins_size_labels
+                    .iter()
+                    .map(|(_, _, w, h, _)| (*w, *h)),
+            )
+            .with_labels(
+                boxes_mins_size_labels
+                    .iter()
+                    .map(|(_, _, _, _, label)| rerun::datatypes::Utf8::from(label.as_str()))
+                    .collect::<Vec<_>>(),
+            ),
+        )?;
     }
 }
 
 pub fn main() -> anyhow::Result<()> {
-    let rec = rerun::RecordingStreamBuilder::new("rerun_example_minimal").serve_grpc_opts("0.0.0.0", 9876, MemoryLimit::from_fraction_of_total(0.25)).unwrap();
+    let rec = rerun::RecordingStreamBuilder::new("rerun_example_minimal")
+        .serve_grpc_opts("0.0.0.0", 9876, MemoryLimit::from_fraction_of_total(0.25))
+        .unwrap();
     run::<YoloV8>(rec.clone())?;
     Ok(())
 }

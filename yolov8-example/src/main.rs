@@ -1,12 +1,8 @@
-use std::io::Write;
-use std::io::{BufRead, BufReader, BufWriter};
-use std::{env, io::Seek};
 
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_sync::pubsub::PubSubChannel;
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Timer};
 
 mod model;
 use model::{Multiples, YoloV8};
@@ -19,10 +15,9 @@ use candle_transformers::object_detection::{Bbox, KeyPoint, non_maximum_suppress
 // Use V4L2 to get images
 use image::DynamicImage;
 use libcamera::{
-    camera::ActiveCamera,
     camera_manager::CameraManager,
     geometry::Size, logging::LoggingLevel,
-    stream::{Stream, StreamConfigurationRef, StreamRole},
+    stream::{StreamConfigurationRef, StreamRole},
     utils::Immutable,
 };
 use std::iter::Iterator;
@@ -33,13 +28,11 @@ use libcamera::{
     framebuffer_allocator::{FrameBuffer, FrameBufferAllocator},
     framebuffer_map::MemoryMappedFrameBuffer,
     pixel_format::PixelFormat,
-    properties,
     request::ReuseFlag,
 };
 
-use log::{Level, error, info};
+use log::info;
 use rerun::{MemoryLimit, RecordingStream};
-use yuvutils_rs::{YuvPackedImage, YuvRange, YuvStandardMatrix, yuyv422_to_rgb};
 
 pub static IMAGES_CHANNEL: PubSubChannel<CriticalSectionRawMutex, image::RgbImage, 2, 3, 1> =
     PubSubChannel::new();
@@ -206,7 +199,7 @@ async fn task_camera(rec: RecordingStream) {
         .collect::<Vec<_>>();
 
     // Create capture requests and attach buffers
-    let mut reqs = buffers
+    let reqs = buffers
         .into_iter()
         .map(|buf| {
             let mut req = cam.create_request(None).unwrap();
@@ -232,7 +225,7 @@ async fn task_camera(rec: RecordingStream) {
 
     // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
     let target_channels: u32 = 3;
-    let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
+    let img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
     let tx = IMAGES_CHANNEL.publisher().unwrap();
 
     loop {

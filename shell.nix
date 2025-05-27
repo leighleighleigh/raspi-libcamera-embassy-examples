@@ -13,9 +13,13 @@ let
   };
 
   rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+
+  ### callpackage
+  libpisp = pkgs.callPackage ./pkgs/libpisp/package.nix {};
+  libcamera-dev = pkgs.callPackage ./pkgs/libcamera/package.nix { libpisp = libpisp; };
 in
   pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } rec {
-    buildInputs = [ rust ] ++ (with pkgs; [
+    buildInputs = [ rust libcamera-dev ] ++ (with pkgs; [
       #bacon 
       #gcc 
       #rust-analyzer
@@ -33,7 +37,7 @@ in
       #rustup
 
       # for libcamera-rs
-      libcamera
+      #libcamera
       libclang
       #libllvm
 

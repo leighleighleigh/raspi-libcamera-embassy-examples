@@ -31,6 +31,8 @@ use libcamera::{
     request::ReuseFlag,
 };
 
+use yuvutils_rs::{YuvPackedImage,yuyv422_to_rgb,YuvRange,YuvStandardMatrix};
+
 use log::info;
 use rerun::{MemoryLimit, RecordingStream};
 
@@ -38,10 +40,9 @@ pub static IMAGES_CHANNEL: PubSubChannel<CriticalSectionRawMutex, image::RgbImag
     PubSubChannel::new();
 
 // drm-fourcc does not have MJPEG type yet, construct it from raw fourcc identifier
-pub const PIXEL_FORMAT: PixelFormat =
-    PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
+//pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'M', b'J', b'P', b'G']), 0);
 // raspi camera only supports YUYV directly
-// pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
+pub const PIXEL_FORMAT: PixelFormat = PixelFormat::new(u32::from_le_bytes([b'Y', b'U', b'Y', b'V']), 0);
 
 // Change the output format as desired
 //const IMAGE_FILE_SUFFIX: &str = "png";
@@ -145,7 +146,7 @@ async fn task_camera(rec: RecordingStream) {
     let mgr = CameraManager::new().unwrap();
     mgr.log_set_level("Camera", LoggingLevel::Error);
     let cameras = mgr.cameras();
-    let cam = cameras.get(1).expect("No cameras found");
+    let cam = cameras.get(0).expect("No cameras found");
     let mut cam = cam.acquire().expect("Unable to acquire camera");
     //.generate_configuration(&[StreamRole::VideoRecording])
     let mut cfgs = cam
@@ -225,7 +226,7 @@ async fn task_camera(rec: RecordingStream) {
 
     // TODO: Convert from raw YUYV pixels data, into BGR data, then encode as JPEG.
     let target_channels: u32 = 3;
-    let img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
+    let mut img_rgb = vec![0u8; width as usize * height as usize * target_channels as usize];
     let tx = IMAGES_CHANNEL.publisher().unwrap();
 
     loop {
@@ -249,7 +250,6 @@ async fn task_camera(rec: RecordingStream) {
             .bytes_used as usize;
 
         // ONLY FOR PIXEL FORMAT YUV
-        /*
         // Convert the raw YUYV422 packed pixel data into RGB8
         let src_yuyv422: YuvPackedImage<u8> = YuvPackedImage {
             yuy: &img_data[..data_len],
@@ -269,9 +269,9 @@ async fn task_camera(rec: RecordingStream) {
         )
         .unwrap();
         let buffered_image = image::RgbImage::from_vec(width, height, img_rgb.clone()).expect("Built image from buffer");
-        */
 
         // ONLY FOR PIXEL FORMAT MJPEG
+        /*
         let imgbuf = std::io::Cursor::new(&img_data[..data_len]);
         let buffered_image = image::ImageReader::new(imgbuf)
             .with_guessed_format()
@@ -279,7 +279,7 @@ async fn task_camera(rec: RecordingStream) {
             .decode()
             .expect("Decoded image")
             .to_rgb8();
-
+        */
         tx.publish_immediate(buffered_image);
 
         // Push request back onto queue and go again after a second

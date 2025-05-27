@@ -1,0 +1,13 @@
+run:
+    #!/usr/bin/env bash
+    cargo run --release
+
+build:
+    #!/usr/bin/env bash
+    cargo build --release
+
+remote-camera IP="192.168.68.7" PORT="9876":
+    #!/usr/bin/env bash
+    # requires v4l loopback thingy to be running
+    #ffmpeg  -f mjpeg -i 'http://{{IP}}:{{PORT}}/stream.mjpg' -map 0:v -vf format=yuv420p -f v4l2 -vcodec rawvideo /dev/video0
+    ffmpeg  -f mjpeg -i 'http://{{IP}}:{{PORT}}/stream.mjpg' -map 0:v -vf format=yuv420p -f v4l2 -vcodec mjpeg /dev/video0
